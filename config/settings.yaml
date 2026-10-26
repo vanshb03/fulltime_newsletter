@@ -21,7 +21,7 @@ max_jobs_per_source: 0
 
 # Email digest.
 email:
-  enabled: true
+  enabled: false
   subject_prefix: "[Full-Time Alert]"
   # group order in the digest
   category_order: [swe, quant, consulting, other]
