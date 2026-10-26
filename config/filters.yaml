@@ -1,6 +1,10 @@
 # Filtering rules. Everything here is tunable without touching code.
 # A job is kept only if it passes ALL of: role, category keywords, US location, active.
 
+# Exclude postings whose application URL uses one of these hosts.
+excluded_url_hosts:
+  - go.vansh.nyc
+
 # ---------------------------------------------------------------------------
 # 1) ROLE
 # ---------------------------------------------------------------------------

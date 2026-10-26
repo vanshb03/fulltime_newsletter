@@ -1,5 +1,7 @@
 """Filter behaviour against the real config/filters.yaml."""
 
+import pytest
+
 from src import config
 from src.filters import is_new_grad_title, is_top_match_title, match_priority, passes
 from src.models import Job
@@ -16,6 +18,26 @@ def _job(title, locations=None, **kw):
 
 
 F = config.filters()
+
+
+@pytest.mark.parametrize("url", [
+    "https://go.vansh.nyc/job123",
+    "http://go.vansh.nyc/job123?ref=newsletter",
+    "https://GO.VANSH.NYC:443/job123",
+    "https://go.vansh.nyc./job123",
+])
+def test_excluded_application_host_rejected(url):
+    assert not passes(_job("Software Engineer", ["New York, NY"], url=url), F)
+
+
+@pytest.mark.parametrize("url", [
+    "https://vansh.nyc/job123",
+    "https://example.com/go.vansh.nyc",
+    "https://example.com/?ref=https://go.vansh.nyc/job123",
+    "https://go.vansh.nyc.example.com/job123",
+])
+def test_other_application_hosts_kept(url):
+    assert passes(_job("Software Engineer", ["New York, NY"], url=url), F)
 
 
 def test_new_grad_titles_are_high_priority():
