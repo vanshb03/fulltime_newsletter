@@ -2,8 +2,7 @@
 # A job is kept only if it passes ALL of: role, category keywords, US location, active.
 
 # Exclude postings whose application URL uses one of these hosts.
-excluded_url_hosts:
-  - go.vansh.nyc
+excluded_url_hosts: []
 
 # ---------------------------------------------------------------------------
 # 1) ROLE

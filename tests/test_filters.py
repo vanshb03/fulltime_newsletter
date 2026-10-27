@@ -20,24 +20,26 @@ def _job(title, locations=None, **kw):
 F = config.filters()
 
 
+_EXCLUDING = {**F, "excluded_url_hosts": ["blocked.example"]}
+
+
 @pytest.mark.parametrize("url", [
-    "https://go.vansh.nyc/job123",
-    "http://go.vansh.nyc/job123?ref=newsletter",
-    "https://GO.VANSH.NYC:443/job123",
-    "https://go.vansh.nyc./job123",
+    "https://blocked.example/job123",
+    "http://blocked.example/job123?ref=newsletter",
+    "https://BLOCKED.EXAMPLE:443/job123",
+    "https://blocked.example./job123",
 ])
 def test_excluded_application_host_rejected(url):
-    assert not passes(_job("Software Engineer", ["New York, NY"], url=url), F)
+    assert not passes(_job("Software Engineer", ["New York, NY"], url=url), _EXCLUDING)
 
 
 @pytest.mark.parametrize("url", [
-    "https://vansh.nyc/job123",
-    "https://example.com/go.vansh.nyc",
-    "https://example.com/?ref=https://go.vansh.nyc/job123",
-    "https://go.vansh.nyc.example.com/job123",
+    "https://example.com/blocked.example",
+    "https://example.com/?ref=https://blocked.example/job123",
+    "https://blocked.example.com/job123",
 ])
 def test_other_application_hosts_kept(url):
-    assert passes(_job("Software Engineer", ["New York, NY"], url=url), F)
+    assert passes(_job("Software Engineer", ["New York, NY"], url=url), _EXCLUDING)
 
 
 def test_new_grad_titles_are_high_priority():
