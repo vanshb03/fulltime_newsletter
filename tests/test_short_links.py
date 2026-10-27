@@ -1,6 +1,7 @@
 """Short-link resolution (go.vansh.nyc/<key> -> the employer's posting)."""
 
 import requests
+import pytest
 
 from src.models import Job
 from src.sources.short_links import is_short_link, resolve, resolve_short_links
@@ -100,3 +101,66 @@ def test_job_already_sent_under_its_short_link_is_not_new_again():
     jobs = resolve_short_links([_job("https://go.vansh.nyc/BX")], s, hosts=HOSTS)
     assert jobs[0].short_url == "https://go.vansh.nyc/BX"
     assert new_jobs(jobs, state) == []
+
+
+@pytest.mark.parametrize("destination", [
+    "https://[invalid/",
+    "javascript:alert(1)",
+    "data:text/html,broken",
+    "file:///tmp/posting",
+    "https://jobs.ashbyhq.com:invalid/acme/1",
+    "https://bad host.example/job",
+])
+def test_invalid_redirect_keeps_original_link_without_aborting_batch(destination):
+    short = "https://go.vansh.nyc/bad"
+    good = "https://go.vansh.nyc/good"
+    direct = "https://jobs.ashbyhq.com/acme/1"
+    session = _Session({short: (302, destination), good: (302, direct)})
+    jobs = resolve_short_links([_job(short), _job(good)], session, hosts=HOSTS)
+    assert jobs[0].url == short
+    assert jobs[0].short_url is None
+    assert jobs[1].url == direct
+
+
+def test_invalid_redirect_raised_by_requests_is_isolated():
+    session = _Session({"https://go.vansh.nyc/bad": ValueError("Invalid IPv6 URL")})
+    assert resolve(session, "https://go.vansh.nyc/bad", HOSTS) is None
+
+
+def test_relative_redirect_still_resolves():
+    session = _Session({
+        "https://go.vansh.nyc/a": (302, "/b"),
+        "https://go.vansh.nyc/b": (302, "//jobs.ashbyhq.com/acme/1"),
+    })
+    assert resolve(session, "https://go.vansh.nyc/a", HOSTS) == "https://jobs.ashbyhq.com/acme/1"
+
+
+def test_resolved_job_stays_seen_when_resolution_later_fails():
+    from src.dedup import new_jobs, update_state
+
+    short = "https://go.vansh.nyc/BX"
+    session = _Session({short: (302, "https://jobs.ashbyhq.com/acme/1")})
+    state = update_state({}, resolve_short_links([_job(short)], session, hosts=HOSTS))
+    jobs = resolve_short_links([_job(short)], _Session({}), hosts=HOSTS)
+    assert new_jobs(jobs, state) == []
+
+
+@pytest.mark.parametrize("direct_first", [False, True])
+@pytest.mark.parametrize("seen_url", ["short", "direct"])
+def test_seen_alias_migrates_in_either_source_order_without_resetting_age(direct_first, seen_url):
+    from datetime import date
+    from src.dedup import new_jobs, update_state
+
+    short = "https://go.vansh.nyc/BX"
+    direct = "https://jobs.ashbyhq.com/acme/1"
+    state = update_state({}, [_job(short if seen_url == "short" else direct)], today=date(2026, 10, 25))
+    session = _Session({short: (302, direct)})
+    jobs = resolve_short_links([_job(short)], session, hosts=HOSTS) + [_job(direct)]
+    if direct_first:
+        jobs.reverse()
+    assert new_jobs(jobs, state) == []
+    for url in (short, direct):
+        job = _job(url)
+        assert state[job.job_id]["first_seen"] == "2026-10-25"
+        assert state[job.dedup_id]["first_seen"] == "2026-10-25"
+        assert new_jobs([job], state) == []

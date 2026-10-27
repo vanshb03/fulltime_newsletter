@@ -17,7 +17,7 @@ import sys
 from datetime import datetime
 
 from . import config
-from .dedup import load_state, new_jobs, prune, save_state, update_state
+from .dedup import load_state, new_jobs, prune, reconcile_short_links, save_state, update_state
 from .filters import apply_filters
 from .models import Job
 from .notify import email as email_notify
@@ -48,6 +48,17 @@ def collect_jobs(limit: int | None = None) -> list[Job]:
         all_jobs.extend(src.safe_fetch(session))
     log.info("collected %d raw jobs from %d sources", len(all_jobs), len(sources))
     return all_jobs
+
+
+def collect_matching_jobs(limit: int | None = None) -> list[Job]:
+    """Collect candidates with resolved URLs for both notifications and apply."""
+    matched = apply_filters(collect_jobs(limit=limit))
+    with make_session() as session:
+        resolve_short_links(matched, session)
+    # A short link can lead to an excluded host; check the final URL too.
+    matched = apply_filters(matched)
+    log.info("%d jobs passed filters", len(matched))
+    return matched
 
 
 def _print_digest(jobs: list[Job]) -> None:
@@ -104,11 +115,7 @@ def run(
     secrets = config.secrets()
     today = datetime.now().date()
 
-    raw = collect_jobs(limit=limit)
-    matched = apply_filters(raw)
-    log.info("%d jobs passed filters", len(matched))
-    # Short links -> employer URLs, before dedup compares URLs across lists.
-    resolve_short_links(matched, make_session())
+    matched = collect_matching_jobs(limit=limit)
 
     state = load_state(config.state_path())
 
@@ -153,6 +160,8 @@ def run(
 
     # Persist: record the new jobs as seen, prune old entries.
     state = update_state(state, fresh, today)
+    # Also retain aliases from duplicate listings omitted from `fresh`.
+    reconcile_short_links(matched, state)
     state = prune(state, settings.get("prune_after_days", 120), today)
     save_state(config.state_path(), state)
     log.info("state saved (%d total tracked jobs)", len(state))

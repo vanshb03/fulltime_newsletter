@@ -19,8 +19,7 @@ import sys
 from pathlib import Path
 
 from .. import config
-from ..filters import apply_filters
-from ..main import collect_jobs
+from ..main import collect_matching_jobs
 from . import applog as applog_mod
 from . import fields
 from . import runner
@@ -57,7 +56,7 @@ def _resolve_resume(profile) -> str:
 
 
 def _candidate_jobs(args, applog, allowed_ats: set[str]):
-    matched = apply_filters(collect_jobs())
+    matched = collect_matching_jobs()
     out = []
     seen_ids: set[str] = set()  # de-dup the same posting appearing in >1 list
     for job in matched:

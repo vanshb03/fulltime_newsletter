@@ -43,16 +43,35 @@ def _short_link_ids(job: Job) -> tuple[str, str]:
     return alias.job_id, alias.dedup_id
 
 
+def _job_ids(job: Job) -> set[str]:
+    ids = {job.job_id, job.dedup_id}
+    if job.short_url:
+        ids.update(_short_link_ids(job))
+    return ids
+
+
+def reconcile_short_links(jobs: list[Job], state: dict[str, dict]) -> None:
+    """Remember aliases of already-seen postings without resetting their age."""
+    groups: dict[str, set[str]] = {}
+    for job in jobs:
+        groups.setdefault(job.dedup_id, set()).update(_job_ids(job))
+    for ids in groups.values():
+        known = next((state[i] for i in sorted(ids) if i in state), None)
+        if known is not None:
+            for jid in ids:
+                state.setdefault(jid, known)
+
+
 def new_jobs(jobs: list[Job], state: dict[str, dict]) -> list[Job]:
-    """Jobs whose id is not already in state (deduped within the batch too)."""
+    """Return unseen jobs, backfilling state with aliases of seen postings."""
+    # Reconcile the whole batch first: a direct listing may precede the short
+    # link that connects it to an old state entry.
+    reconcile_short_links(jobs, state)
     seen_now: set[str] = set()
     out: list[Job] = []
     for job in jobs:
         legacy_id = job.job_id
         dedup_id = job.dedup_id
-        # A job first notified under its short link is still the same job.
-        if job.short_url and any(i in state for i in _short_link_ids(job)):
-            continue
         if (
             legacy_id in state
             or dedup_id in state
@@ -77,8 +96,8 @@ def update_state(
             "title": job.title,
             "url": job.url,
         }
-        state[job.dedup_id] = meta
-        state[job.job_id] = meta
+        for jid in _job_ids(job):
+            state[jid] = meta
     return state
 
 

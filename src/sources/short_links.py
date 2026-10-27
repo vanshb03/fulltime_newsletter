@@ -49,20 +49,39 @@ def is_short_link(url: str, hosts: Iterable[str]) -> bool:
     return _host(url) in set(hosts)
 
 
+def _is_http_url(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        # Accessing port also rejects invalid port numbers.
+        parsed.port
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and not any(c.isspace() for c in parsed.netloc)
+        )
+    except ValueError:
+        return False
+
+
 def resolve(session: requests.Session, url: str, hosts: set[str], timeout: float = 10) -> Optional[str]:
     """Return the URL a short link redirects to, or None if it can't be read."""
     current = url
+    if not _is_http_url(current):
+        return None
     for _ in range(_MAX_HOPS):
         try:
             resp = session.head(current, allow_redirects=False, timeout=timeout)
-        except requests.RequestException as exc:
+            location = resp.headers.get("Location")
+            if resp.status_code not in _REDIRECT_CODES or not location:
+                log.warning("short link %s: HTTP %s, no redirect", url, resp.status_code)
+                return None
+            current = urljoin(current, location)
+        except (requests.RequestException, ValueError) as exc:
             log.warning("short link %s: %s", url, exc)
             return None
-        location = resp.headers.get("Location")
-        if resp.status_code not in _REDIRECT_CODES or not location:
-            log.warning("short link %s: HTTP %s, no redirect", url, resp.status_code)
+        if not _is_http_url(current):
+            log.warning("short link %s: invalid HTTP redirect", url)
             return None
-        current = urljoin(current, location)
         if not is_short_link(current, hosts):
             return current
     log.warning("short link %s: still a short link after %d hops", url, _MAX_HOPS)
